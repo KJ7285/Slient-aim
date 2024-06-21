@@ -1,0 +1,165 @@
+getgenv().Silent = {
+    Settings = {
+        HitPart = "HumanoidRootPart",
+        Prediction = 0.1485436,
+        Enabled = true,
+        StreamableMode = false,
+        AimAssist = {
+            Enabled = false,
+            Smoothness = 0.1,
+        },
+        FOV = {
+            Visible = true,
+            Filled = false,
+            Transparency = 0.3,
+            Thickness = 2,
+            Color = Color3.fromRGB(128, 0, 128), -- gay coloe
+            Radius = 100
+        },
+        Dot = {
+            Color = Color3.fromRGB(255, 255, 255) -- White color
+        },
+        AutoPrediction = {
+            Enabled = true,
+            PingPredictions = {
+                [50] = 0.20,
+                [100] = 0.17,
+                [150] = 0.15,
+                [200] = 0.13,
+                [250] = 0.12,
+                Default = 0.10
+            }
+        }
+    }
+}
+
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local player = game.Players.LocalPlayer
+local camera = game.Workspace.CurrentCamera
+
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = getgenv().Silent.Settings.FOV.Visible
+FOVCircle.Filled = getgenv().Silent.Settings.FOV.Filled
+FOVCircle.Transparency = getgenv().Silent.Settings.FOV.Transparency
+FOVCircle.Thickness = getgenv().Silent.Settings.FOV.Thickness
+FOVCircle.Color = getgenv().Silent.Settings.FOV.Color
+FOVCircle.Radius = getgenv().Silent.Settings.FOV.Radius
+
+local BillboardGui = Instance.new("BillboardGui")
+BillboardGui.Size = UDim2.new(1, 0, 1, 0)
+BillboardGui.AlwaysOnTop = true
+
+local Frame = Instance.new("Frame", BillboardGui)
+Frame.Size = UDim2.new(1, 0, 1, 0)
+Frame.BackgroundColor3 = getgenv().Silent.Settings.Dot.Color
+
+local UICorner = Instance.new("UICorner", Frame)
+UICorner.CornerRadius = UDim.new(1, 0)
+
+local function UpdateFOVCircle()
+    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    FOVCircle.Position = screenCenter
+
+    if getgenv().Silent.Settings.StreamableMode then
+        FOVCircle.Visible = false
+        FOVCircle.Transparency = 0.2
+        FOVCircle.Radius = 50
+    else
+        FOVCircle.Visible = getgenv().Silent.Settings.FOV.Visible
+        FOVCircle.Transparency = getgenv().Silent.Settings.FOV.Transparency
+        FOVCircle.Radius = getgenv().Silent.Settings.FOV.Radius
+    end
+end
+
+local function IsTargetVisible(target)
+    local ray = Ray.new(camera.CFrame.Position, (target.Position - camera.CFrame.Position).unit * 500)
+    local part, _ = game.Workspace:FindPartOnRayWithIgnoreList(ray, {player.Character})
+    return part and part:IsDescendantOf(target.Parent)
+end
+
+local function GetNearestTarget()
+    local nearestTarget = nil
+    local shortestDistance = FOVCircle.Radius
+
+    for _, v in pairs(game.Players:GetPlayers()) do
+        if v ~= player and v.Character and v.Character:FindFirstChild(getgenv().Silent.Settings.HitPart) then
+            local screenPoint = camera:WorldToViewportPoint(v.Character[getgenv().Silent.Settings.HitPart].Position)
+            local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - FOVCircle.Position).magnitude
+
+            if distance < shortestDistance and IsTargetVisible(v.Character[getgenv().Silent.Settings.HitPart]) then
+                nearestTarget = v
+                shortestDistance = distance
+            end
+        end
+    end
+
+    return nearestTarget
+end
+
+RS.RenderStepped:Connect(function()
+    UpdateFOVCircle()
+    if getgenv().Silent.Settings.Enabled then
+        local newTarget = GetNearestTarget()
+        if newTarget ~= SilentTarget then
+            if SilentTarget and SilentTarget.Character then
+                if SilentTarget.Character:FindFirstChild("BillboardGui") then
+                    SilentTarget.Character.BillboardGui:Destroy()
+                end
+            end
+            SilentTarget = newTarget
+            if SilentTarget and SilentTarget.Character then
+                if not getgenv().Silent.Settings.StreamableMode and IsTargetVisible(SilentTarget.Character[getgenv().Silent.Settings.HitPart]) then
+                    BillboardGui.Adornee = SilentTarget.Character[getgenv().Silent.Settings.HitPart]
+                    BillboardGui.Parent = SilentTarget.Character[getgenv().Silent.Settings.HitPart]
+                end
+            end
+        end
+    end
+
+    if getgenv().Silent.Settings.AimAssist.Enabled and SilentTarget and SilentTarget.Character then
+        local targetPosition = SilentTarget.Character[getgenv().Silent.Settings.HitPart].Position
+        local direction = (targetPosition - camera.CFrame.Position).unit
+        local newCFrame = CFrame.new(camera.CFrame.Position, camera.CFrame.Position + direction)
+        camera.CFrame = camera.CFrame:Lerp(newCFrame, getgenv().Silent.Settings.AimAssist.Smoothness)
+    end
+end)
+
+getgenv().AutoPrediction = function()
+    if getgenv().Silent.Settings.AutoPrediction.Enabled then
+        local ping = game:GetService("Stats"):FindFirstChild("PerformanceStats").Ping:GetValue()
+        for maxPing, prediction in pairs(getgenv().Silent.Settings.AutoPrediction.PingPredictions) do
+            if ping < maxPing then
+                getgenv().Silent.Settings.Prediction = prediction
+                return
+            end
+        end
+        getgenv().Silent.Settings.Prediction = getgenv().Silent.Settings.AutoPrediction.PingPredictions.Default
+    end
+end
+
+game:GetService("RunService").Stepped:Connect(getgenv().AutoPrediction)
+
+local mt = getrawmetatable(game)
+local old = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(...)
+    local args = {...}
+    if getgenv().Silent.Settings.Enabled and SilentTarget and SilentTarget.Character and getnamecallmethod() == "FireServer" and args[2] == "UpdateMousePos" then
+        if getgenv().Silent.Settings.StreamableMode and math.random() < 0.85 then
+            args[3] = SilentTarget.Character[getgenv().Silent.Settings.HitPart].Position + (SilentTarget.Character[getgenv().Silent.Settings.HitPart].Velocity * getgenv().Silent.Settings.Prediction)
+        else
+            args[3] = SilentTarget.Character[getgenv().Silent.Settings.HitPart].Position + (SilentTarget.Character[getgenv().Silent.Settings.HitPart].Velocity * getgenv().Silent.Settings.Prediction)
+        end
+        return old(unpack(args))
+    end
+    return old(...)
+end)
+setreadonly(mt, true)
+
+local StarterGui = game:GetService("StarterGui")
+StarterGui:SetCore("SendNotification", {
+    Title = "Silent Aim Loaded",
+    Text = "THIS SCRIPT HITTTTT",
+    Duration = 5
+})
